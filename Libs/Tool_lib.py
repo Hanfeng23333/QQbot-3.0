@@ -1,4 +1,5 @@
-import os,threading,httpx
+#Made by Han_feng
+import os
 
 class Message_maker:
     """
@@ -43,44 +44,58 @@ class Message_maker:
         return {"type":"Plain","text":text}
     
     @staticmethod
-    def message_image_path(path:str) -> dict:
+    def message_image_path(path:str,is_emoji:bool=False) -> dict:
         """
         Make a message that contains a image
 
         Param:
 
         path(str) -> the path of the image(Relative to the work path)(use '/')
+
+        is_emoji(bool) -> whether the image is a emoji
         """
-        return {"type":"Image","path":"%s/%s"%(Message_maker.work_folder_name,path)}
+        return {"type":"Image","path":"%s/%s"%(Message_maker.work_folder_name,path),"isEmoji":is_emoji}
     
     @staticmethod
-    def message_image_url(url:str) -> dict:
+    def message_image_url(url:str,is_emoji:bool=False) -> dict:
         """
         Make a message that contains a image
 
         Param:
 
         url(str) -> the url of the image
+
+        is_emoji(bool) -> whether the image is a emoji
         """
-        return {"type":"Image","url":url}
+        return {"type":"Image","url":url,"isEmoji":is_emoji}
     
-class Message_chain:
+    @staticmethod
+    def message_image_base64(base64_str:str,is_emoji:bool=False) -> dict:
+        """
+        Make a message that contains a image
+
+        Param:
+
+        base64_str(str) -> the base64 of the image
+
+        is_emoji(bool) -> whether the image is a emoji
+        """
+        return {"type":"Image","base64":base64_str,"isEmoji":is_emoji}
+    
+class Message:
     """
     A class for storing the message chain.
 
     Sending message will use the message chain.
     """
-    def __init__(self,session_key:str,target:int):
+    def __init__(self,target:int):
         """
         Initialize the message chain
 
         Params:
 
-        session_key(str) -> the session key of the QQ bot
-
         target(int) -> the target where sends the message chain to(friend or group)
         """
-        self.session_key = session_key
         self.target = target
         self.message_chain = []
 
@@ -94,30 +109,10 @@ class Message_chain:
         """
         self.message_chain.append(message)
 
-    def to_dict(self) -> dict:
+    def to_dict(self,session_key:str) -> dict:
         """
-        Get the standard mirai message chain json
+        Return the standard mirai message chain json
 
         No param
         """
-        return {"sessionKey":self.session_key,"target":self.target,"messageChain":self.message_chain}
-    
-class Web_manager:
-    """
-    A class that handle the web connection
-
-    It's used as a thread so as to get the web infomation in the background
-    """
-    def __init__(self,url:str):
-        self.url = url
-        self.header = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"}
-        self.thread = threading.Thread(target=self.thread_function)
-
-    def get(self,path:str="",params:dict=None) -> httpx.Response:
-        return httpx.get(self.url+path,params=params,headers=self.header)
-    
-    def post(self,path:str="",data=None,json:dict=None) ->httpx.Response:
-        return httpx.post(self.url,data=data,json=json,headers=self.header)
-    
-    def thread_function(self):
-        pass
+        return {"sessionKey":session_key,"target":self.target,"messageChain":self.message_chain}
