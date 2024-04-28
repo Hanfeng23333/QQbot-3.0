@@ -22,7 +22,7 @@ class QQbot:
 
         #Event managements
         self.receive_event_queue:list[dict] = []
-        self.handle_event_process_pool = ProcessPoolExecutor(max_workers=3)
+        self.handle_event_thread_pool = ThreadPoolExecutor(max_workers=5)
 
         #Sending messages managements
         self.send_message_queue:list[Message] = []
@@ -52,6 +52,7 @@ class QQbot:
                 self.send_message_queue.append(message)
             
             plugin.push_message = push_message
+            plugin.get_plugin = self.get_plugin
             self.plugins.append(plugin)
             print("%s plugin is loaded successfully!"%type(plugin).__name__)
         else:
@@ -66,6 +67,12 @@ class QQbot:
             error_message.push(remove_text)
             self.send_message_queue.append(error_message)
         self.plugins.remove(plugin)
+
+    def get_plugin(self,plugin_name:str) -> Base_plugin:
+        #Callback function for plugins
+        for plugin in self.plugins:
+            if plugin.name == plugin_name:
+                return plugin
 
     def update(self):
         #Update all the plugins
@@ -85,11 +92,10 @@ class QQbot:
         #Create the futures
         for plugin in self.plugins:
             self.update_futures[plugin] = self.update_thread_pool.submit(plugin_update,plugin)
-
         
     def update_check(self):
         #Catch the errors
-        for plugin in self.update_futures:
+        for plugin in tuple(self.update_futures.keys()):
             if self.update_futures[plugin].running():
                 continue
             try:

@@ -10,12 +10,15 @@ class Base_plugin:
         self.data_path = "Plugins/Plugins_data/"+self.name+"/" #You must use this data path to store your data or file, or they won't save correctly
         self.is_update = False
         self.push_message:function[Message] = None
+        self.get_plugin:function[Base_plugin] = None
 
     def reply(self,key_word:str,*args,**info) -> None:
         """
         Overwrite this reply function for calling your functions to reply the users.
 
         Use the push_massage function to push the message into the message queue
+
+        Use the get_plugin function to interact with other plugins
 
         DON'T MODIFY THE PARAMS, OR YOUR PLUGIN WILL BE UNABLE TO USE!!!
 
@@ -32,9 +35,13 @@ class Base_plugin:
         """
         Overwrite this update function for updating some data.
 
-        The update function will be called every 30 minutes, so you can implement a timer(a multiple of 0.5 hours) to update
+        The update function will be called at the start of the main loop and every 30 minutes after that, so you can implement a timer(a multiple of 0.5 hours) to update
+
+        The plugin will be removed if it can't finish its update until the next update(I don't believe that the plugin can't finish the update in 30min, so there must be some errors)
 
         Use the push_massage function to push the message into the message queue
+
+        Use the get_plugin function to interact with other plugins
 
         DON'T MODIFY THE PARAMS, OR YOUR PLUGIN WILL BE UNABLE TO USE!!!
         """
