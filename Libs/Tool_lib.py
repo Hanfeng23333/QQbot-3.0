@@ -109,6 +109,16 @@ class Message:
         """
         self.message_chain.append(message)
 
+    def pop(self,index:int=-1) -> dict:
+        """
+        push a message to the message chain
+
+        Param:
+
+        index(int) -> the index of the message in the message chain
+        """
+        return self.message_chain.pop(index)
+
     def to_dict(self,session_key:str) -> dict:
         """
         Return the standard mirai message chain json

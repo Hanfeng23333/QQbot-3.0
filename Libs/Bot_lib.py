@@ -4,19 +4,29 @@ from Plugins.Plugin_template import Base_plugin
 from Tool_lib import *
 from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor,Future
 from concurrent.futures import TimeoutError,CancelledError
-from typing import List
 
 class QQbot:
     def __init__(self,verify_key:str,qq:int,master_qq:int,url:str):
+        #Base attributes
         self.verify_key = verify_key
         self.qq = qq
         self.master_qq = master_qq
         self.url = url
         self.session_key = ""
-        self.plugins:List[Base_plugin] = []
-        self.update_futures:List[Future] = []
-        self.whitegroups:List[int] = []
-        self.send_message_queue:List[Message] = []
+        self.whitegroups:list[int] = []
+
+        #Plugins managements
+        self.plugins:list[Base_plugin] = []
+        self.update_futures:dict[Base_plugin,Future] = {}
+        self.update_thread_pool = ThreadPoolExecutor(max_workers=5)
+
+        #Event managements
+        self.receive_event_queue:list[dict] = []
+        self.handle_event_process_pool = ProcessPoolExecutor(max_workers=3)
+
+        #Sending messages managements
+        self.send_message_queue:list[Message] = []
+        self.send_thread_pool = ThreadPoolExecutor(max_workers=5)
 
     def login(self) -> None:
         #Verify the identity
@@ -36,47 +46,64 @@ class QQbot:
 
     def load_plugin(self,plugin:Base_plugin) -> None:
         if(isinstance(plugin,Base_plugin)): #Check the plugin whether is deride the Base_plugin
+            #Closure function
+            def push_message(message:Message):
+                message.push("\n—— by %s Plugin"%type(plugin).__name__)
+                self.send_message_queue.append(message)
+            
+            plugin.push_message = push_message
             self.plugins.append(plugin)
             print("%s plugin is loaded successfully!"%type(plugin).__name__)
         else:
             print("%s plugin is loaded failed!"%type(plugin).__name__)
 
+    def remove_plugin(self,plugin:Base_plugin,message:str=""):
+        error_text = Message_maker.message_text(message)
+        remove_text = Message_maker.message_text("%s Plugin has been removed!",type(plugin).__name__)
+        for target in self.whitegroups:
+            error_message = Message(target)
+            error_message.push(error_text)
+            error_message.push(remove_text)
+            self.send_message_queue.append(error_message)
+        self.plugins.remove(plugin)
+
     def update(self):
         #Update all the plugins
 
-        #Try to cancel the futures left
-        for future in self.update_futures:
-            future.cancel()
+        #Remove those plugins that update timeout
+        for plugin in tuple(self.update_futures.keys()):
+            if not self.update_futures[plugin].done():
+                self.update_futures.pop(plugin)
+                self.remove_plugin(plugin,"%s plugin updates timed out!\n"%type(plugin).__name__)
+
+        #Make a clousure function
+        def plugin_update(plugin:Base_plugin):
+            plugin.is_update = True
+            plugin.update()
+            plugin.is_update = False
 
         #Create the futures
-        executor = ThreadPoolExecutor(max_workers=5)
-        self.update_futures = [executor.submit(plugin.update) for plugin in self.plugins]
-        executor.shutdown(False)
+        for plugin in self.plugins:
+            self.update_futures[plugin] = self.update_thread_pool.submit(plugin.update)
 
+        
     def update_check(self):
         #Catch the errors
-        for plugin,future in zip(self.plugins,self.update_futures):
-            if future.running():
+        for plugin in self.update_futures:
+            if self.update_futures[plugin].running():
                 continue
-
             try:
-                exception = future.exception()
+                exception = self.update_futures[plugin].exception()
                 if exception:
                     #The update function of the plugin raises an error, so we will remove the plugin...
-                    error_text = Message_maker.message_text("%s plugin updates failed!\n%s:%s"%(type(plugin).__name__,type(exception).__name__,str(exception)))
-                    for target in self.whitegroups:
-                        error_message = Message(target)
-                        error_message.push(error_text)
-                        self.send_message_queue.append(error_message)
-                    self.plugins.remove(plugin)
-                else:
-                    self.send_message_queue.extend(future.result())
+                    self.remove_plugin(plugin,"%s plugin failed to update!\n%s:%s\n"%(type(plugin).__name__,type(exception).__name__,str(exception)))
             except TimeoutError:
                 pass
             except CancelledError:
                 pass
             finally:
-                self.update_futures.remove(future)
+                self.update_futures.pop(plugin)
 
-    def fetch_messages(self):
-        pass
+    def fetch_events(self):
+        received_events_result = httpx.get(self.url+"/fetchMessage",params={"sessionKey":self.session_key,"count":20})
+        self.receive_event_queue.extend(received_events_result.json()["data"])
