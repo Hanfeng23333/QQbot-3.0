@@ -84,7 +84,7 @@ class QQbot:
 
         #Create the futures
         for plugin in self.plugins:
-            self.update_futures[plugin] = self.update_thread_pool.submit(plugin.update)
+            self.update_futures[plugin] = self.update_thread_pool.submit(plugin_update,plugin)
 
         
     def update_check(self):
