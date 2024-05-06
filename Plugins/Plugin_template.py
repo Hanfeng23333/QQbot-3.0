@@ -2,17 +2,19 @@
 #All the plugins must be derived from the Base_plugin class, or the plugins that don't meet the requirement will be not allowed to be loaded!
 #Only the update, the reply functions will be called in main thread, but you can make up other functions... Use them in those two functions!!!
 from Libs.Tool_lib import *
+import asyncio,httpx
 
 class Base_plugin:
     def __init__(self):
         self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function
         self.name = type(self).__name__
         self.data_path = "Plugins/Plugins_data/"+self.name+"/" #You must use this data path to store your data or file, or they won't save correctly
-        self.is_update = False
+        self.plugin_lock = False
         self.push_message:function[Message] = None
-        self.get_plugin:function[Base_plugin] = None
+        self.get_plugin:function[str] = None
+        self.async_client:httpx.AsyncClient = None
 
-    def reply(self,key_word:str,*args,**info) -> None:
+    async def reply(self,key_word:str,*args,**info) -> None:
         """
         Overwrite this reply function for calling your functions to reply the users.
 
@@ -31,7 +33,7 @@ class Base_plugin:
         info(dict) -> the information of the message
         """
 
-    def update(self) -> None:
+    async def update(self) -> None:
         """
         Overwrite this update function for updating some data.
 
@@ -50,4 +52,8 @@ class Base_plugin:
         return hash(self.name)
     
     def __eq__(self,other):
-        return isinstance(other,Base_plugin) and self.name == other.name
+        if isinstance(other,str):
+            return self.name == other
+        elif isinstance(other,Base_plugin):
+            return self.name == other.name
+        return False
