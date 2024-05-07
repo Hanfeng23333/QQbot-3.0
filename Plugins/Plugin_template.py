@@ -33,7 +33,7 @@ class Base_plugin:
         info(dict) -> the information of the message
         """
 
-    async def update(self) -> None:
+    def update(self) -> None:
         """
         Overwrite this update function for updating some data.
 

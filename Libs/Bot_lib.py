@@ -20,6 +20,7 @@ class QQbot:
         self.receive_event_queue:list[dict] = []
 
         #Message management
+        self.massage_client = httpx.AsyncClient()
         self.send_message_queue:list[Message] = []
 
     def login(self) -> None:
@@ -75,13 +76,8 @@ class QQbot:
         self.receive_event_queue.extend(received_events_result.json()["data"])
 
     async def update_plugins(self):
-        update_tasks:dict[Base_plugin,asyncio.Task] = dict()
-        async with httpx.AsyncClient() as client:
-            for plugin in self.plugins:
-                plugin.async_client = client
-                update_tasks[plugin] = asyncio.create_task(asyncio.wait_for(plugin.update(),1800))
-            
-            await asyncio.gather(*update_tasks.values())
+        update_tasks:dict[Base_plugin,asyncio.Task] = dict(map(lambda plugin:(plugin,asyncio.create_task(asyncio.wait_for(asyncio.to_thread(plugin.update()),1800))),self.plugins))
+        await asyncio.gather(*update_tasks.values())
 
         for plugin in update_tasks:
             exception = update_tasks[plugin].exception()
