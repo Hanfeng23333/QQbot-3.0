@@ -9,11 +9,14 @@ class Base_plugin:
         self.name = type(self).__name__
         self.data_path = "Plugins/Plugins_data/%s/"%self.name #You must use this data path to store your data or file, or they won't save correctly
         self.plugin_lock = False
-        self.event_types = [] #choose which kinds of event to receive
-        self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function when the event type is "command"
         self.push_message:function[Message] = None
         self.get_plugin:function[str] = None
         self.async_client:httpx.AsyncClient = None
+
+        #The attributes you need to fill with
+        self.event_types = [] #choose which kinds of event to receive
+        self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function when the event type is "command"
+        self.update_internal = -1 #the internal of the update
 
     async def reply(self,event_type:str,key_word:str="",*args,**info) -> None:
         """
@@ -40,9 +43,7 @@ class Base_plugin:
         """
         Overwrite this update function for updating some data.
 
-        The update function will be called at the start of the main loop and every 30 minutes after that, so you can implement a timer(a multiple of 0.5 hours) to update
-
-        The plugin will be removed if it can't finish its update until the next update(I don't believe that the plugin can't finish the update in 30min, so there must be some errors)
+        The plugin will be removed if it can't finish its update in 30 minutes(I don't believe that the plugin can't finish the update in 30min, so there must be some errors)
 
         Use the push_massage function to push the message into the message queue
 
