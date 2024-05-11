@@ -1,15 +1,17 @@
 #Made by Han_feng
-import httpx,asyncio,threading,os
+import importlib.util
+import httpx,asyncio,threading,os,importlib,functools
 from Plugins.Plugin_template import Base_plugin
 from .Tool_lib import *
 
 class QQbot:
-    def __init__(self,verify_key:str,qq:int,master_qq:int,url:str):
+    def __init__(self,verify_key:str,qq:int,master_qq:int,url:str,manager_password:int):
         #Base attributes
         self.verify_key = verify_key
         self.qq = qq
         self.master_qq = master_qq
         self.url = url
+        self.manager_password = manager_password
         self.session_key = ""
         self.white_groups:list[int] = list()
 
@@ -42,7 +44,7 @@ class QQbot:
         
         print("QQ bot has been signed in!")
 
-    async def load_plugin(self,plugin:Base_plugin) -> None:
+    def load_plugin(self,plugin:Base_plugin) -> None:
         if(isinstance(plugin,Base_plugin)): #Check the plugin whether is deride the Base_plugin
             #Closure function
             def push_message(message:Message):
@@ -57,6 +59,11 @@ class QQbot:
             self.plugins.append(plugin)
             if plugin.update_internal > 0:
                 self.update_plugin(plugin)
+            elif plugin.update_internal == 0:
+                update_once_task = asyncio.create_task(asyncio.to_thread(plugin.update))
+                update_once_task.set_name(plugin)
+                update_once_task.add_done_callback(self.check_once_update)
+                self.update_plugin_tasks[plugin] = update_once_task
             print("%s plugin is loaded successfully!"%plugin)
         else:
             print("%s plugin is loaded failed!"%plugin)
@@ -89,12 +96,23 @@ class QQbot:
                 self.send_message_queue.append(error_message)
             self.plugins.remove(plugin)
 
-    def get_plugin(self,plugin_name:str) -> Base_plugin | None:
+    @functools.singledispatchmethod
+    def get_plugin(self,plugin_name) -> None:
         #Callback function for plugins
+        return None
+    
+    @get_plugin.register
+    def get_plugin_by_name(self,plugin_name:str) -> Base_plugin | None:
+        #get the plugin by name
         try:
             return self.plugins[self.plugins.index(plugin_name)]
         except ValueError:
             return None
+        
+    @get_plugin.register 
+    def get_plugin_list(self,manager_password:int) -> list[Base_plugin]:
+        #get the plugin list if it's the manager plugin
+        return self.plugins if manager_password == self.manager_password else []
 
     def check_timer(self,task:asyncio.Task) -> None:
         plugin_name = task.get_name()
@@ -128,6 +146,12 @@ class QQbot:
                 self.update_plugin_tasks[plugin_name][0].remove_done_callback(self.check_timer)
                 self.update_plugin_tasks[plugin_name][0].cancel()
                 self.update_plugin_tasks.pop(plugin_name)
+
+    def check_once_update(self,task:asyncio.Task) -> None:
+        exception,plugin_name = task.exception(),task.get_name()
+        if exception:
+            self.remove_plugin(plugin_name,exception=exception)
+        self.update_plugin_tasks.pop(plugin_name)
 
     async def fetch_events(self) -> None:
         received_events_result = await self.massage_client.get(self.url+"/fetchMessage",params={"sessionKey":self.session_key,"count":20})
@@ -203,6 +227,23 @@ class QQbot:
     
     async def main(self) -> None:
         await self.login()
+        
         plugin_list = os.listdir("Plugins")
         plugin_list.remove("Plugins_data")
         plugin_list.remove("Plugin_template.py")
+        plugin_list.remove("__pycache__")
+        plugin_list.remove("__init__.py")
+
+        for plugin_name in plugin_list:
+            if spec := importlib.util.find_spec("."+plugin_name,"Plugins."+plugin_name):
+                plugin_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(plugin_module)
+                plugin_class = getattr(plugin_module,plugin_name,None)
+                if plugin_class:
+                    self.load_plugin(plugin_class())
+
+        while True:
+            await self.fetch_events()
+            self.handle_events()
+            self.send_messages()
+            await asyncio.sleep(0.1)

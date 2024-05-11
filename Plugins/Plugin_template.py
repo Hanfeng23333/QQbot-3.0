@@ -1,6 +1,9 @@
 #Made by Han_feng
-#All the plugins must be derived from the Base_plugin class, or the plugins that don't meet the requirement will be not allowed to be loaded!
-#Only the update, the reply functions will be called in main thread, but you can make up other functions... Use them in those two functions!!!
+"""All the plugins must be derived from the Base_plugin class, or the plugins that don't meet the requirement will be not allowed to be loaded!
+
+Only the update, the reply functions will be called in main thread, but you can make up other functions... Use them in those two functions!!!
+
+If you want to import the module in your package, use 'from . import <module name>, or the module in other plugin package, use 'from <package name> import <plugin name>'""" 
 from Libs.Tool_lib import *
 import asyncio,httpx,threading
 
@@ -16,7 +19,7 @@ class Base_plugin:
         #The attributes you need to fill with
         self.event_types = [] #choose which kinds of event to receive
         self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function when the event type is "command"
-        self.update_internal = 0 #the internal of the update (in seconds)(less than or equal to zero means it won't update)
+        self.update_internal = -1 #the internal of the update (in seconds)(zero means it'll update only once, while less than zero means it won't update)
 
     async def reply(self,event_type:str,key_word:str="",*args,**info) -> None:
         """
@@ -28,15 +31,11 @@ class Base_plugin:
 
         DON'T MODIFY THE PARAMS, OR YOUR PLUGIN WILL BE UNABLE TO USE!!!
 
-        Params:
-
-        event_type(str) -> the type of the event
-
-        key_word(str) -> the key word that calls this plugin
-
-        args(list) -> the parameters that follow the key word
-
-        info(dict) -> the information of the message {"sender":qq(int),"group":qq(int)}
+        :param event_type(str): the type of the event
+        :param key_word(str): the key word that calls this plugin
+        :param args(list): the parameters that follow the key word
+        :param info(dict): the information of the message {"sender":qq(int),"group":qq(int)}
+        :return: None
         """
 
     def update(self,stop_event:threading.Event) -> None:
@@ -68,6 +67,9 @@ class Base_plugin:
         return {}
 
     def __str__(self) -> str:
+        return self.name
+    
+    def __repr__(self) -> str:
         return self.name
 
     def __hash__(self) -> int:
