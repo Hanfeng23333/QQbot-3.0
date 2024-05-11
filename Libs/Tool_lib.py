@@ -123,6 +123,8 @@ class Message:
         """
         Return the standard mirai message chain json
 
-        No param
+        Param:
+
+        session_key(str) -> the session key used for sending messages
         """
         return {"sessionKey":session_key,"target":self.target,"messageChain":self.message_chain}

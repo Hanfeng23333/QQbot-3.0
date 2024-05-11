@@ -2,11 +2,11 @@
 #All the plugins must be derived from the Base_plugin class, or the plugins that don't meet the requirement will be not allowed to be loaded!
 #Only the update, the reply functions will be called in main thread, but you can make up other functions... Use them in those two functions!!!
 from Libs.Tool_lib import *
-import asyncio,httpx
+import asyncio,httpx,threading
 
 class Base_plugin:
     def __init__(self):
-        self.name = type(self).__name__
+        self.name = self.__class__.__name__
         self.data_path = "Plugins/Plugins_data/%s/"%self.name #You must use this data path to store your data or file, or they won't save correctly
         self.plugin_lock = False
         self.push_message:function[Message] = None
@@ -16,7 +16,7 @@ class Base_plugin:
         #The attributes you need to fill with
         self.event_types = [] #choose which kinds of event to receive
         self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function when the event type is "command"
-        self.update_internal = -1 #the internal of the update
+        self.update_internal = 0 #the internal of the update (in seconds)(less than or equal to zero means it won't update)
 
     async def reply(self,event_type:str,key_word:str="",*args,**info) -> None:
         """
@@ -39,11 +39,11 @@ class Base_plugin:
         info(dict) -> the information of the message {"sender":qq(int),"group":qq(int)}
         """
 
-    def update(self) -> None:
+    def update(self,stop_event:threading.Event) -> None:
         """
         Overwrite this update function for updating some data.
 
-        The plugin will be removed if it can't finish its update in 30 minutes(I don't believe that the plugin can't finish the update in 30min, so there must be some errors)
+        The plugin will be removed if it can't finish its update before the next update(I don't believe that the plugin can't finish the update before the next update, so there must be some errors)
 
         Use the push_massage function to push the message into the message queue
 
@@ -51,7 +51,11 @@ class Base_plugin:
 
         Set the plugin_lock to prevent some strange error if necessary
 
+        When updates the data, I strongly suggest checking the stop_event to see whether this update is abandonded (Every update has its own stop_event, so check it without worry)(This is used for the force update...)
+
         DON'T MODIFY THE PARAMS, OR YOUR PLUGIN WILL BE UNABLE TO USE!!!
+
+        DON'T USE THE ASYNC CLIENT HERE!!!USE NORMAL HTTP REQUEST!!!
         """
 
     def help(self) -> dict:
