@@ -2,7 +2,7 @@ from threading import Event
 from Plugins.Plugin_template import Base_plugin
 from Libs.Tool_lib import *
 from Libs.Bot_lib import *
-import ujson
+import ujson,copy
 
 class Arona_main(Base_plugin):
     def __init__(self):
@@ -12,9 +12,12 @@ class Arona_main(Base_plugin):
         self.update_internal = 600
 
         self.bot:QQbot = None
+        self.empty_user = {"credit":0,"stone":0}
         self.users = {}
 
     async def reply(self, event_type: Event_type, key_word: str = "", *args, **info) -> None:
+        if not info["sender"] in self.users:
+            self.users[info["sender"]] = copy.deepcopy(self.empty_user)
         match event_type:
             case Event_type.COMMAND:
                 match key_word:
@@ -48,7 +51,10 @@ class Arona_main(Base_plugin):
         else:
             try:
                 with open(self.data_path+"users.json","r",encoding="UTF-8") as file:
-                    self.users = ujson.load(file)
+                    data = ujson.load(file)
+                    for key in data:
+                        self.users[key] = copy.deepcopy(self.empty_user)
+                        self.users[key].update(data[key])
             except FileNotFoundError:
                 with open(self.data_path+"users.json","w",encoding="UTF-8") as file:
                     ujson.dump(self.users,file)
@@ -58,7 +64,8 @@ class Arona_main(Base_plugin):
             "帮助":{
                 "<无参数>":"查询所有插件的帮助文档",
                 "[插件名称]":"查询特定插件的帮助文档"
-            }
+            },
+            "插件":"查询目前已安装的插件"
         }
     
     def formatted_nested_dict(self,dictionary:dict,indent=0) -> str:
