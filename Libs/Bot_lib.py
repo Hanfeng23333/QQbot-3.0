@@ -3,6 +3,7 @@ import importlib.util
 import httpx,asyncio,threading,os,importlib,functools
 from Plugins.Plugin_template import Base_plugin
 from .Tool_lib import *
+from typing import Self
 
 class QQbot:
     def __init__(self,verify_key:str,qq:int,master_qq:int,url:str,manager_password:int):
@@ -26,26 +27,33 @@ class QQbot:
         #Message management
         self.send_message_queue:list[Message] = list()
         self.send_message_tasks = set()
-        self.massage_client = httpx.AsyncClient()
+        self.message_client = httpx.AsyncClient()
 
     async def login(self) -> None:
         #Verify the identity
-        verify_result = await self.massage_client.post(self.url+"/verify",json={"verifyKey":self.verify_key})
+        verify_result = await self.message_client.post(self.url+"/verify",json={"verifyKey":self.verify_key})
         verify_result_json = verify_result.json()
-        if(verify_result_json["code"] != 0):
+        if verify_result_json["code"] != 0:
             raise ValueError("Verify failed! Please check the verify key!")
         self.session_key = verify_result_json["session"]
 
         #Bind the qq number of the bot
-        bind_result = await self.massage_client.post(self.url+"/bind",json={"sessionKey":self.session_key,"qq":self.qq})
+        bind_result = await self.message_client.post(self.url+"/bind",json={"sessionKey":self.session_key,"qq":self.qq})
         bind_result_json = bind_result.json()
-        if(bind_result_json["code"] != 0):
+        if bind_result_json["code"] != 0:
             raise ConnectionError("Bind failed! Please check the session key!")
         
         print("QQ bot has been signed in!")
 
-    def load_plugin(self,plugin:Base_plugin) -> None:
-        if(isinstance(plugin,Base_plugin)): #Check the plugin whether is deride the Base_plugin
+    def find_plugin(self,plugin_name:str) -> type[Base_plugin] | None:
+        if spec := importlib.util.find_spec("."+plugin_name,"Plugins."+plugin_name):
+            plugin_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(plugin_module)
+            return getattr(plugin_module,plugin_name,None)
+        return None
+
+    def load_plugin(self,plugin:Base_plugin) -> bool:
+        if isinstance(plugin,Base_plugin): #Check the plugin whether is deride the Base_plugin
             #Closure function
             def push_message(message:Message):
                 if isinstance(message,Message):
@@ -60,15 +68,13 @@ class QQbot:
             if plugin.update_internal > 0:
                 self.update_plugin(plugin)
             elif plugin.update_internal == 0:
-                update_once_task = asyncio.create_task(asyncio.to_thread(plugin.update))
-                update_once_task.set_name(plugin)
-                update_once_task.add_done_callback(self.check_once_update)
-                self.update_plugin_tasks[plugin] = update_once_task
+                self.update_once_plugin(plugin)
             print("%s plugin is loaded successfully!"%plugin)
-        else:
-            print("%s plugin is loaded failed!"%plugin)
+            return True
+        print("%s plugin is loaded failed!"%plugin)
+        return False
 
-    def update_plugin(self,plugin:Base_plugin):
+    def update_plugin(self,plugin:Base_plugin) -> None:
         #set the timer task
         timer_task = asyncio.create_task(asyncio.sleep(plugin.update_internal))
         timer_task.set_name(plugin)
@@ -83,17 +89,20 @@ class QQbot:
         self.update_plugin_tasks[plugin][1] = update_task
         self.update_plugin_tasks[plugin][2] = stop_event
 
+    def update_once_plugin(self,plugin:Base_plugin) -> None:
+        #Only the update task
+        update_once_task = asyncio.create_task(asyncio.to_thread(plugin.update))
+        update_once_task.set_name(plugin)
+        update_once_task.add_done_callback(self.check_once_update)
+        self.update_plugin_tasks[plugin] = update_once_task
+
     def remove_plugin(self,plugin:Base_plugin|str,message:str="",exception:Exception=None) -> None:
         if plugin in self.plugins:
-            message_text = Message_maker.message_text(message)
-            exception_text = Message_maker.message_text("%s: %s\n"%(exception.__class__.__name__,exception) if exception else "")
-            remove_text = Message_maker.message_text("%s Plugin has been removed!"%plugin)
-            for target in self.white_groups:
-                error_message = Message(target)
-                error_message.push(message_text)
-                error_message.push(exception_text)
-                error_message.push(remove_text)
-                self.send_message_queue.append(error_message)
+            error_message = Message(Message_type.BROADCAST)
+            error_message.push(Message_maker.message_text(message))
+            error_message.push(Message_maker.message_text("%s: %s\n"%(exception.__class__.__name__,exception) if exception else ""))
+            error_message.push(Message_maker.message_text("%s Plugin has been removed!"%plugin))
+            self.send_message_queue.append(error_message)
             self.plugins.remove(plugin)
 
     @functools.singledispatchmethod
@@ -110,9 +119,9 @@ class QQbot:
             return None
         
     @get_plugin.register 
-    def get_plugin_list(self,manager_password:int) -> list[Base_plugin]:
+    def get_self(self,manager_password:int) -> Self | None:
         #get the plugin list if it's the manager plugin
-        return self.plugins if manager_password == self.manager_password else []
+        return self if manager_password == self.manager_password else None
 
     def check_timer(self,task:asyncio.Task) -> None:
         plugin_name = task.get_name()
@@ -135,11 +144,9 @@ class QQbot:
             case None | asyncio.CancelledError():
                 pass
             case TimeoutError():
-                timeout_text = Message_maker.message_text("%s plugin failed to update!"%task.get_name())
-                for target in self.white_groups:
-                    timeout_message = Message(target)
-                    timeout_message.push(timeout_text)
-                    self.send_message_queue.append(timeout_message)
+                timeout_message = Message(Message_type.BROADCAST)
+                timeout_message.push(Message_maker.message_text("%s plugin failed to update!"%task.get_name()))
+                self.send_message_queue.append(timeout_message)
             case exception:
                 plugin_name = task.get_name()
                 self.remove_plugin(plugin_name,exception=exception)
@@ -154,7 +161,7 @@ class QQbot:
         self.update_plugin_tasks.pop(plugin_name)
 
     async def fetch_events(self) -> None:
-        received_events_result = await self.massage_client.get(self.url+"/fetchMessage",params={"sessionKey":self.session_key,"count":20})
+        received_events_result = await self.message_client.get(self.url+"/fetchMessage",params={"sessionKey":self.session_key,"count":20})
         for event in received_events_result.json()["data"]:
             event_dict:dict = {"event_type":"","key_word":"","args":[],"info":{"sender":0,"group":0}}
             is_valid:bool = False
@@ -163,32 +170,32 @@ class QQbot:
             match event["type"]:
                 case "GroupMessage" if event["sender"]["group"] in self.white_groups:
                     #Group message
-                    event_dict["event_type"] = "command"
                     event_dict["info"]["sender"] = event["sender"]["id"]
-                    event_dict["info"]["group"] = event["sender"]["group"]
+                    event_dict["info"]["group"] = event["sender"]["group"]["id"]
+                    is_valid = True
 
-                    #search the command
-                    command_symbol_count = 0 #handle the exception
-                    for message in event["messageChain"]:
-                        match message["type"]:
-                            case "At" if message["target"] == self.qq:
-                                is_valid = True
-                            case "Plain":
-                                text_segments = list(filter(None,message["text"]))
-                                if text_segments:
-                                    if text_segments[0][0] == "/":
-                                        command_symbol_count += 1
-                                        event_dict["key_word"] = text_segments.pop(0)[1:]
-                                    else:
-                                        event_dict["key_word"] = text_segments.pop(0)
-                                event_dict["args"].extend(text_segments)
-                    
-                    #Let's see whether the command is valid
-                    is_valid = (is_valid or command_symbol_count) and command_symbol_count <= 1
+                    match event["messageChain"]:
+                        case [dict() as text_dict] if text_dict["type"] == "Plain":
+                            if command_tuple:= check_command(text_dict["text"].strip()):
+                                event_dict["event_type"] = Event_type.COMMAND
+                                event_dict["key_word"],event_dict["args"] = command_tuple
+                            else:
+                                event_dict["event_type"] = Event_type.TEXT
+                                event_dict["key_word"] = text_dict["text"]
+                        case [dict() as at_dict,dict() as text_dict] if at_dict["type"] == "At" and at_dict["target"] == self.qq and text_dict["type"] == "Plain":
+                            event_dict["event_type"] = Event_type.COMMAND
+                            text_segments:list[str] = list(filter(None,text_dict["text"].strip()))
+                            is_valid = bool(text_segments)
+                            if is_valid:
+                                text_segments[0] = text_segments[0][1:] if text_segments[0].startswith("/") else text_segments[0]
+                                event_dict["key_word"],event_dict["args"] = text_segments.pop(0),text_segments
+                        case [*args]:
+                            event_dict["event_type"] = Event_type.COMMAND
+                            event_dict["args"] = list(map(lambda d:d["text"],filter(lambda d:d["type"]=="Plain",args)))
                 
                 case "NudgeEvent" if event["target"] == self.qq:
                     #Nudge event
-                    event_dict["event_type"] == "nudge"
+                    event_dict["event_type"] == Event_type.NUDGE
                     event_dict["info"]["sender"] = event["fromID"]
                     if event["subject"]["kind"] == "Group":
                         event_dict["info"]["group"] = event["subject"]["id"]
@@ -205,9 +212,9 @@ class QQbot:
                 is_valid = False
                 if event_dict["event_type"] in plugin.event_types:
                     match event_dict["event_type"]:
-                        case "command":
+                        case Event_type.COMMAND:
                             is_valid = event_dict["key_word"] in plugin.key_words
-                        case "nudge":
+                        case Event_type.TEXT | Event_type.NUDGE:
                             is_valid = True
                 
                 if is_valid:
@@ -216,8 +223,11 @@ class QQbot:
                     self.send_message_tasks.add(reply_task)
 
     async def send_single_message(self,message:Message) -> None:
-        send_result = await self.massage_client.post(self.url+"/sendGroupMessage",json=message.to_dict(self.session_key))
-        #print(send_result.json())
+        match message.message_type:
+            case Message_type.BROADCAST:
+                await asyncio.gather(*map(lambda group:self.message_client.post(self.url+"/sendGroupMessage",json=message.to_dict(group,self.session_key)),self.white_groups))
+            case Message_type.GROUP_MESSAGE:
+                await self.message_client.post(self.url+"/sendGroupMessage",json=message.to_dict(self.session_key))
 
     def send_messages(self):
         while self.send_message_queue:
@@ -234,13 +244,9 @@ class QQbot:
         plugin_list.remove("__pycache__")
         plugin_list.remove("__init__.py")
 
-        for plugin_name in plugin_list:
-            if spec := importlib.util.find_spec("."+plugin_name,"Plugins."+plugin_name):
-                plugin_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(plugin_module)
-                plugin_class = getattr(plugin_module,plugin_name,None)
-                if plugin_class:
-                    self.load_plugin(plugin_class())
+        for plugin_class in filter(None,map(self.find_plugin,plugin_list)):
+            #print(plugin_class())
+            self.load_plugin(plugin_class())
 
         while True:
             await self.fetch_events()

@@ -1,5 +1,22 @@
 #Made by Han_feng
-import os
+import os,functools
+from enum import Flag,auto
+from typing import Tuple,List
+
+def check_command(text:str) -> Tuple[str,List[str]] | None:
+    if not text or text[0] != "/":
+        return None
+    command_list = text.split(" ")
+    return (command_list.pop(0)[1:],list(filter(None,command_list)))
+
+class Message_type(Flag):
+    BROADCAST = auto() #Send the message to all the white groups, and the target qq will be ignored
+    GROUP_MESSAGE = auto()
+
+class Event_type(Flag):
+    TEXT = auto()
+    COMMAND = auto()
+    NUDGE = auto()
 
 class Message_maker:
     """
@@ -81,21 +98,24 @@ class Message_maker:
         is_emoji(bool) -> whether the image is a emoji
         """
         return {"type":"Image","base64":base64_str,"isEmoji":is_emoji}
-    
+
 class Message:
     """
     A class for storing the message chain.
 
     Sending message will use the message chain.
     """
-    def __init__(self,target:int):
+    def __init__(self,message_type:Message_type=Message_type.GROUP_MESSAGE,target:int=0):
         """
         Initialize the message chain
 
         Params:
 
+        message_type(Message_type) -> the type of the message
+
         target(int) -> the target where sends the message chain to(friend or group)
         """
+        self.message_type = message_type
         self.target = target
         self.message_chain = []
 
@@ -119,12 +139,10 @@ class Message:
         """
         return self.message_chain.pop(index)
 
+    @functools.singledispatchmethod
     def to_dict(self,session_key:str) -> dict:
-        """
-        Return the standard mirai message chain json
-
-        Param:
-
-        session_key(str) -> the session key used for sending messages
-        """
         return {"sessionKey":session_key,"target":self.target,"messageChain":self.message_chain}
+    
+    @to_dict.register
+    def to_dict_by_target(self,target:int,session_key:str) -> dict:
+        return {"sessionKey":session_key,"target":target,"messageChain":self.message_chain}

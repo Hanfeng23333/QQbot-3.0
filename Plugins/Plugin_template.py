@@ -5,15 +5,16 @@ Only the update, the reply functions will be called in main thread, but you can 
 
 If you want to import the module in your package, use 'from . import <module name>, or the module in other plugin package, use 'from <package name> import <plugin name>'""" 
 from Libs.Tool_lib import *
+from typing import Callable
 import asyncio,httpx,threading
 
 class Base_plugin:
     def __init__(self):
         self.name = self.__class__.__name__
         self.data_path = "Plugins/Plugins_data/%s/"%self.name #You must use this data path to store your data or file, or they won't save correctly
-        self.plugin_lock = False
-        self.push_message:function[Message] = None
-        self.get_plugin:function[str] = None
+        self.plugin_path = "Plugins/%s/"%self.name #Use this to import your data in your pack
+        self.push_message:Callable[[Message],None] = None
+        self.get_plugin:Callable[[str],Base_plugin|None] = None
         self.async_client:httpx.AsyncClient = None
 
         #The attributes you need to fill with
@@ -21,7 +22,7 @@ class Base_plugin:
         self.key_words = [] #Fill the list of the key words, as only the matched functions will call the reply function when the event type is "command"
         self.update_internal = -1 #the internal of the update (in seconds)(zero means it'll update only once, while less than zero means it won't update)
 
-    async def reply(self,event_type:str,key_word:str="",*args,**info) -> None:
+    async def reply(self,event_type:Event_type,key_word:str="",*args,**info) -> None:
         """
         Overwrite this reply function for calling your functions to reply the users.
 
