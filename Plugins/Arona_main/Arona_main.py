@@ -9,7 +9,7 @@ class Arona_main(Base_plugin):
         Base_plugin.__init__(self)
         self.event_types = [Event_type.COMMAND,Event_type.NUDGE]
         self.key_words = ["帮助","插件"]
-        self.update_internal = 600
+        self.update_internal = 900
 
         self.bot:QQbot = None
         self.empty_user = {"credit":0,"stone":0}
@@ -51,10 +51,9 @@ class Arona_main(Base_plugin):
         else:
             try:
                 with open(self.data_path+"users.json","r",encoding="UTF-8") as file:
-                    data = ujson.load(file)
-                    for key in data:
+                    for key,value in ujson.load(file).items():
                         self.users[key] = copy.deepcopy(self.empty_user)
-                        self.users[key].update(data[key])
+                        self.users[key].update(value)
             except FileNotFoundError:
                 with open(self.data_path+"users.json","w",encoding="UTF-8") as file:
                     ujson.dump(self.users,file)
@@ -66,6 +65,7 @@ class Arona_main(Base_plugin):
                 "[插件名称]":"查询特定插件的帮助文档"
             },
             "插件":"查询目前已安装的插件"
+
         }
     
     def formatted_nested_dict(self,dictionary:dict,indent=0) -> str:

@@ -19,7 +19,7 @@ class QQbot:
         #Plugins management
         self.plugins:list[Base_plugin] = list()
         self.plugin_client = httpx.AsyncClient()
-        self.update_plugin_tasks:dict[Base_plugin,list[asyncio.Task,asyncio.Task,threading.Event]] = dict()
+        self.update_plugin_tasks:dict[Base_plugin,tuple[asyncio.Task,asyncio.Task,threading.Event]|asyncio.Task] = dict()
 
         #Event management
         self.receive_event_queue:list[dict] = list()
@@ -79,15 +79,14 @@ class QQbot:
         timer_task = asyncio.create_task(asyncio.sleep(plugin.update_internal))
         timer_task.set_name(plugin)
         timer_task.add_done_callback(self.check_timer)
-        self.update_plugin_tasks[plugin][0] = timer_task
 
         #set the update task
         stop_event = threading.Event()
         update_task = asyncio.create_task(asyncio.to_thread(plugin.update,stop_event))
         update_task.set_name(plugin)
         update_task.add_done_callback(self.check_update)
-        self.update_plugin_tasks[plugin][1] = update_task
-        self.update_plugin_tasks[plugin][2] = stop_event
+
+        self.update_plugin_tasks[plugin] = (timer_task,update_task,stop_event)
 
     def update_once_plugin(self,plugin:Base_plugin) -> None:
         #Only the update task
@@ -182,15 +181,24 @@ class QQbot:
                             else:
                                 event_dict["event_type"] = Event_type.TEXT
                                 event_dict["key_word"] = text_dict["text"]
-                        case [dict() as at_dict,dict() as text_dict] if at_dict["type"] == "At" and at_dict["target"] == self.qq and text_dict["type"] == "Plain":
-                            event_dict["event_type"] = Event_type.COMMAND
-                            text_segments:list[str] = list(filter(None,text_dict["text"].strip()))
-                            is_valid = bool(text_segments)
-                            if is_valid:
-                                text_segments[0] = text_segments[0][1:] if text_segments[0].startswith("/") else text_segments[0]
-                                event_dict["key_word"],event_dict["args"] = text_segments.pop(0),text_segments
+                        case [dict() as at_dict,dict() as text_dict] if at_dict["type"] == "At" and text_dict["type"] == "Plain":
+                            if at_dict["target"] == self.qq:
+                                event_dict["event_type"] = Event_type.COMMAND
+                                text_segments:list[str] = list(filter(None,text_dict["text"].strip()))
+                                is_valid = bool(text_segments)
+                                if is_valid:
+                                    text_segments[0] = text_segments[0][1:] if text_segments[0].startswith("/") else text_segments[0]
+                                    event_dict["key_word"],event_dict["args"] = text_segments.pop(0),text_segments
+                            else:
+                                if command_tuple:= check_command(text_dict["text"].strip()):
+                                    event_dict["event_type"] = Event_type.COMMAND
+                                    event_dict["info"]["target"] = at_dict["target"]
+                                    event_dict["key_word"],event_dict["args"] = command_tuple
+                                else:
+                                    event_dict["event_type"] = Event_type.TEXT
+                                    event_dict["key_word"] = text_dict["text"]
                         case [*args]:
-                            event_dict["event_type"] = Event_type.COMMAND
+                            event_dict["event_type"] = Event_type.TEXT
                             event_dict["args"] = list(map(lambda d:d["text"],filter(lambda d:d["type"]=="Plain",args)))
                 
                 case "NudgeEvent" if event["target"] == self.qq:
