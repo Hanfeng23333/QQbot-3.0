@@ -45,6 +45,9 @@ class QQbot:
         
         print("QQ bot has been signed in!")
 
+    def add_white_group(self,new_group:int):
+        self.white_groups.append(new_group)
+
     def find_plugin(self,plugin_name:str) -> type[Base_plugin] | None:
         if spec := importlib.util.find_spec("."+plugin_name,"Plugins."+plugin_name):
             plugin_module = importlib.util.module_from_spec(spec)
@@ -52,7 +55,7 @@ class QQbot:
             return getattr(plugin_module,plugin_name,None)
         return None
 
-    def load_plugin(self,plugin:Base_plugin) -> bool:
+    async def load_plugin(self,plugin:Base_plugin) -> None:
         if isinstance(plugin,Base_plugin): #Check the plugin whether is deride the Base_plugin
             #Closure function
             def push_message(message:Message):
@@ -63,15 +66,21 @@ class QQbot:
             plugin.push_message = push_message
             plugin.get_plugin = self.get_plugin
             plugin.async_client = self.plugin_client
-
             self.plugins.append(plugin)
+
+            plugin.plugin_lock.set()
+            await plugin.load_data()
+            self.update_plugin_tasks.pop(plugin)
+            plugin.plugin_lock.clear()
+
             if plugin.update_internal > 0:
                 self.update_plugin(plugin)
             elif plugin.update_internal == 0:
                 self.update_once_plugin(plugin)
             print("%s plugin is loaded successfully!"%plugin)
             return True
-        print("%s plugin is loaded failed!"%plugin)
+        self.update_plugin_tasks.pop(plugin)
+        print("%s plugin failed to load!"%plugin)
         return False
 
     def update_plugin(self,plugin:Base_plugin) -> None:
@@ -97,6 +106,13 @@ class QQbot:
 
     def remove_plugin(self,plugin:Base_plugin|str,message:str="",exception:Exception=None) -> None:
         if plugin in self.plugins:
+            target = self.get_plugin(plugin)
+            target.plugin_lock.set()
+            remove_task = asyncio.create_task(target.save_data())
+            remove_task.set_name(target)
+            remove_task.add_done_callback(self.check_remove)
+            self.update_plugin_tasks[plugin] = remove_task
+
             error_message = Message(Message_type.BROADCAST)
             error_message.push(Message_maker.message_text(message))
             error_message.push(Message_maker.message_text("%s: %s\n"%(exception.__class__.__name__,exception) if exception else ""))
@@ -110,7 +126,7 @@ class QQbot:
         return None
     
     @get_plugin.register
-    def get_plugin_by_name(self,plugin_name:str) -> Base_plugin | None:
+    def get_plugin_by_name(self,plugin_name:str|Base_plugin) -> Base_plugin | None:
         #get the plugin by name
         try:
             return self.plugins[self.plugins.index(plugin_name)]
@@ -129,9 +145,8 @@ class QQbot:
                 if self.update_plugin_tasks[plugin_name][1].done():
                     self.update_plugin(self.get_plugin(plugin_name))
                 else:
-                    self.remove_plugin(plugin_name,exception=TimeoutError("The update of %s plugin timed out!"))
                     self.update_plugin_tasks[plugin_name][1].cancel()
-                    self.update_plugin_tasks.pop(plugin_name)
+                    self.remove_plugin(plugin_name,exception=TimeoutError("The update of %s plugin timed out!"))
             case asyncio.CancelledError():
                 if not self.update_plugin_tasks[plugin_name][1].done():
                     self.update_plugin_tasks[plugin_name][1].cancel()
@@ -148,26 +163,36 @@ class QQbot:
                 self.send_message_queue.append(timeout_message)
             case exception:
                 plugin_name = task.get_name()
-                self.remove_plugin(plugin_name,exception=exception)
                 self.update_plugin_tasks[plugin_name][0].remove_done_callback(self.check_timer)
                 self.update_plugin_tasks[plugin_name][0].cancel()
-                self.update_plugin_tasks.pop(plugin_name)
+                self.remove_plugin(plugin_name,exception=exception)
 
     def check_once_update(self,task:asyncio.Task) -> None:
         exception,plugin_name = task.exception(),task.get_name()
         if exception:
             self.remove_plugin(plugin_name,exception=exception)
-        self.update_plugin_tasks.pop(plugin_name)
+        else:
+            self.update_plugin_tasks.pop(plugin_name)
+
+    def check_load(self,task:asyncio.Task) -> None:
+        exception,plugin_name = task.exception(),task.get_name()
+        if exception:
+            self.remove_plugin(plugin_name,exception=exception)
+
+    def check_remove(self,task:asyncio.Task) -> None:
+        exception = task.exception()
+        self.update_plugin_tasks.pop(task.get_name())
 
     async def fetch_events(self) -> None:
         received_events_result = await self.message_client.get(self.url+"/fetchMessage",params={"sessionKey":self.session_key,"count":20})
+        #print(received_events_result.json())
         for event in received_events_result.json()["data"]:
             event_dict:dict = {"event_type":"","key_word":"","args":[],"info":{"sender":0,"group":0}}
             is_valid:bool = False
 
             #handle the event
             match event["type"]:
-                case "GroupMessage" if event["sender"]["group"] in self.white_groups:
+                case "GroupMessage" if event["sender"]["group"]["id"] in self.white_groups:
                     #Group message
                     event_dict["info"]["sender"] = event["sender"]["id"]
                     event_dict["info"]["group"] = event["sender"]["group"]["id"]
@@ -200,6 +225,7 @@ class QQbot:
                         case [*args]:
                             event_dict["event_type"] = Event_type.TEXT
                             event_dict["args"] = list(map(lambda d:d["text"],filter(lambda d:d["type"]=="Plain",args)))
+                            is_valid = bool(event_dict["args"])
                 
                 case "NudgeEvent" if event["target"] == self.qq:
                     #Nudge event
@@ -212,23 +238,29 @@ class QQbot:
             #push the event to the queue
             if is_valid:
                 self.receive_event_queue.append(event_dict)
+                print(event_dict)
 
     def handle_events(self) -> None:
         while self.receive_event_queue:
             event_dict = self.receive_event_queue.pop(0)
             for plugin in self.plugins:
-                is_valid = False
-                if event_dict["event_type"] in plugin.event_types:
-                    match event_dict["event_type"]:
-                        case Event_type.COMMAND:
-                            is_valid = event_dict["key_word"] in plugin.key_words
-                        case Event_type.TEXT | Event_type.NUDGE:
-                            is_valid = True
-                
-                if is_valid:
-                    reply_task = asyncio.create_task(plugin.reply(event_dict["event_type"],event_dict["key_word"],*event_dict["args"],**event_dict["info"]))
-                    reply_task.add_done_callback(self.send_message_tasks.discard)
-                    self.send_message_tasks.add(reply_task)
+                if plugin.plugin_lock.is_set():
+                    not_available_message = Message(Message_type.GROUP_MESSAGE,event_dict["info"]["group"]) if event_dict["info"]["group"] else Message(Message_type.PERSONAL_MESSAGE,event_dict["info"]["sender"])
+                    not_available_message.push(Message_maker.message_text("老师,%s插件暂时不可用..."%plugin))
+                    self.send_message_queue.append(not_available_message)
+                else:
+                    is_valid = False
+                    if event_dict["event_type"] in plugin.event_types:
+                        match event_dict["event_type"]:
+                            case Event_type.COMMAND:
+                                is_valid = event_dict["key_word"] in plugin.key_words
+                            case Event_type.TEXT | Event_type.NUDGE:
+                                is_valid = True
+                    
+                    if is_valid:
+                        reply_task = asyncio.create_task(plugin.reply(event_dict["event_type"],event_dict["key_word"],*event_dict["args"],**event_dict["info"]))
+                        reply_task.add_done_callback(self.send_message_tasks.discard)
+                        self.send_message_tasks.add(reply_task)
 
     async def send_single_message(self,message:Message) -> None:
         match message.message_type:
@@ -253,8 +285,13 @@ class QQbot:
         plugin_list.remove("__init__.py")
 
         for plugin_class in filter(None,map(self.find_plugin,plugin_list)):
-            #print(plugin_class())
-            self.load_plugin(plugin_class())
+            plugin = plugin_class()
+            load_task = asyncio.create_task(self.load_plugin(plugin))
+            load_task.set_name(plugin)
+            load_task.add_done_callback(self.check_load)
+            self.update_plugin_tasks[plugin] = load_task
+
+        print("Bot is on standby!")
 
         while True:
             await self.fetch_events()

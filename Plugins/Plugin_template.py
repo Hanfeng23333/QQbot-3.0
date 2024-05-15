@@ -6,7 +6,7 @@ Only the update, the reply functions will be called in main thread, but you can 
 If you want to import the module in your package, use 'from . import <module name>, or the module in other plugin package, use 'from <package name> import <plugin name>'""" 
 from Libs.Tool_lib import *
 from typing import Callable
-import asyncio,httpx,threading
+import asyncio,httpx,threading,os
 
 class Base_plugin:
     def __init__(self):
@@ -16,6 +16,10 @@ class Base_plugin:
         self.push_message:Callable[[Message],None] = None
         self.get_plugin:Callable[[str],Base_plugin|None] = None
         self.async_client:httpx.AsyncClient = None
+        self.plugin_lock = threading.Event()
+
+        if not os.access(self.data_path,os.F_OK):
+            os.makedirs(self.data_path,exist_ok=True)
 
         #The attributes you need to fill with
         self.event_types = [] #choose which kinds of event to receive
@@ -66,6 +70,16 @@ class Base_plugin:
         {function_name:introduction,function_name:{arg1:introduction,arg2:introduction...}...}
         """
         return {}
+
+    async def load_data(self) -> None:
+        """
+        Load your data
+        """
+
+    async def save_data(self) -> None:
+        """
+        Save your data
+        """
 
     def __str__(self) -> str:
         return self.name

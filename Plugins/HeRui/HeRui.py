@@ -1,3 +1,4 @@
+from asyncio import AbstractEventLoop
 from threading import Event
 from Plugins.Plugin_template import Base_plugin
 from Libs.Tool_lib import *
@@ -16,4 +17,10 @@ class HeRui(Base_plugin):
         pass
 
     def help(self) -> dict:
+        return {}
+    
+    async def load_data(self) -> None:
+        pass
+
+    async def save_data(self) -> None:
         pass

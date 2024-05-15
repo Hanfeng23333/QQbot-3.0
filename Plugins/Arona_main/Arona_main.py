@@ -1,8 +1,9 @@
+from asyncio import AbstractEventLoop
 from threading import Event
 from Plugins.Plugin_template import Base_plugin
 from Libs.Tool_lib import *
 from Libs.Bot_lib import *
-import ujson,copy
+import ujson,copy,aiofiles
 
 class Arona_main(Base_plugin):
     def __init__(self):
@@ -43,20 +44,8 @@ class Arona_main(Base_plugin):
                             
 
     def update(self, stop_event: Event) -> None:
-        if not self.bot:
-            self.bot = self.get_plugin(114514)
-        if self.users:
-            with open(self.data_path+"users.json","w",encoding="UTF-8") as file:
-                ujson.dump(self.users,file)
-        else:
-            try:
-                with open(self.data_path+"users.json","r",encoding="UTF-8") as file:
-                    for key,value in ujson.load(file).items():
-                        self.users[key] = copy.deepcopy(self.empty_user)
-                        self.users[key].update(value)
-            except FileNotFoundError:
-                with open(self.data_path+"users.json","w",encoding="UTF-8") as file:
-                    ujson.dump(self.users,file)
+        with open(self.data_path+"users.json","w+",encoding="UTF-8") as file:
+            ujson.dump(self.users,file)
 
     def help(self) -> dict:
         return {
@@ -64,9 +53,29 @@ class Arona_main(Base_plugin):
                 "<无参数>":"查询所有插件的帮助文档",
                 "[插件名称]":"查询特定插件的帮助文档"
             },
-            "插件":"查询目前已安装的插件"
+            "插件":"查询目前已安装的插件",
+            "账户":"查询自己当前的账户状态"
 
         }
+    
+    async def load_data(self) -> None:
+        self.bot = self.get_plugin(114514)
+
+        try:
+            async with aiofiles.open(self.data_path+"users.json","r",encoding="UTF-8") as file:
+                for key,value in ujson.loads(await file.read()).items():
+                    self.users[key] = copy.deepcopy(self.empty_user)
+                    self.users[key].update(value)
+        except FileNotFoundError:
+            json_data = ujson.dumps(self.users)
+            async with aiofiles.open(self.data_path+"users.json","w",encoding="UTF-8") as file:
+                await file.write(json_data)
+
+    async def save_data(self) -> None:
+        json_data = ujson.dumps(self.users)
+
+        async with aiofiles.open(self.data_path+"users.json","w",encoding="UTF-8") as file:
+            await file.write(json_data)
     
     def formatted_nested_dict(self,dictionary:dict,indent=0) -> str:
         lines = []

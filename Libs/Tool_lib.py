@@ -12,6 +12,7 @@ def check_command(text:str) -> Tuple[str,List[str]] | None:
 class Message_type(Flag):
     BROADCAST = auto() #Send the message to all the white groups, and the target qq will be ignored
     GROUP_MESSAGE = auto()
+    PERSONAL_MESSAGE = auto()
 
 class Event_type(Flag):
     TEXT = auto()
