@@ -194,8 +194,10 @@ class QQbot:
             match event["type"]:
                 case "GroupMessage" if event["sender"]["group"]["id"] in self.white_groups:
                     #Group message
+                    source_dict = event["messageChain"].pop(0)
                     event_dict["info"]["sender"] = event["sender"]["id"]
                     event_dict["info"]["group"] = event["sender"]["group"]["id"]
+                    event_dict["info"]["message_id"] = source_dict["id"]
                     is_valid = True
 
                     match event["messageChain"]:

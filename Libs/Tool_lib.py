@@ -119,6 +119,7 @@ class Message:
         self.message_type = message_type
         self.target = target
         self.message_chain = []
+        self.quote = 0
 
     def push(self,message:dict) -> None:
         """
@@ -128,7 +129,10 @@ class Message:
 
         message(dict) -> the message you want to push(Use the Message_maker to create a message)
         """
-        self.message_chain.append(message)
+        if isinstance(message,dict):
+            self.message_chain.append(message)
+        else:
+            raise ValueError("Invaild message!")
 
     def pop(self,index:int=-1) -> dict:
         """
@@ -139,11 +143,24 @@ class Message:
         index(int) -> the index of the message in the message chain
         """
         return self.message_chain.pop(index)
+    
+    def quote_message(self,message_id:int) -> None:
+        """
+        Make the message that quotes the certain message through the message id
+
+        Param:
+
+        message_id(int) -> the id of the message
+        """
+        if isinstance(message_id,int):
+            self.quote = message_id
+        else:
+            raise ValueError("Invaild message id!")
 
     @functools.singledispatchmethod
     def to_dict(self,session_key:str) -> dict:
-        return {"sessionKey":session_key,"target":self.target,"messageChain":self.message_chain}
+        return {"sessionKey":session_key,"target":self.target,"messageChain":self.message_chain,**({"quote":self.quote} if self.quote else {})}
     
     @to_dict.register
     def to_dict_by_target(self,target:int,session_key:str) -> dict:
-        return {"sessionKey":session_key,"target":target,"messageChain":self.message_chain}
+        return {"sessionKey":session_key,"target":target,"messageChain":self.message_chain,**({"quote":self.quote} if self.quote else {})}

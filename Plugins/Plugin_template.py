@@ -39,7 +39,7 @@ class Base_plugin:
         :param event_type(str): the type of the event
         :param key_word(str): the key word that calls this plugin
         :param args(list): the parameters that follow the key word
-        :param info(dict): the information of the message {"sender":qq(int),"group":qq(int)}
+        :param info(dict): the information of the message {"sender":qq(int),"group":qq(int),"message_id":message_id(int)(used for quote)}
         :return: None
         """
 
