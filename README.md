@@ -3,4 +3,4 @@
 
 > I suggest that you'd better use the higher version of Python, at least **3.10**
 
-Under construction...
+**This project has been abandoned!!! You should follow [the new project](https://github.com/Hanfeng23333/QQbot-4.0).**
